@@ -1,0 +1,16 @@
+[project]
+name = "visor"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "black>=25.9.0",
+    "fastapi>=0.120.0",
+    "modal>=1.2.1",
+    "numpy>=2.3.4",
+    "pillow>=12.0.0",
+    "pymupdf>=1.26.5",
+    "python-multipart>=0.0.20",
+    "uvicorn>=0.38.0",
+]

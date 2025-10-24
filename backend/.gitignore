@@ -10,3 +10,9 @@ wheels/
 .venv
 
 uv.lock
+
+modal-docs/
+
+*.log
+
+ocr_output/
