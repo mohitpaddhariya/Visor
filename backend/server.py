@@ -3,11 +3,9 @@ import base64
 from typing import List, Optional, Any, Dict
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import fitz  # PyMuPDF
 from PIL import Image, ImageDraw, ImageFont
-import modal
 from pathlib import Path
 import json
 
@@ -16,15 +14,15 @@ import json
 # -------------------------------------------------
 
 class PageResult(BaseModel):
-    """Holds the result for a single page, which can be success or error."""
+    """Holds the result for a single page."""
     status: str  # "success" or "error"
     data: Optional[List[Dict[str, Any]]] = None
     error: Optional[str] = None
 
 class OCRResponse(BaseModel):
-    """The main API response, now contains a dictionary of PageResult objects."""
+    """The main API response."""
     success: bool
-    results: Dict[str, PageResult]  # e.g., {"page_0": PageResult, "page_1": PageResult}
+    results: Dict[str, PageResult]
     total_pages: int
     message: str = ""
 
@@ -33,11 +31,10 @@ class OCRResponse(BaseModel):
 # -------------------------------------------------
 app = FastAPI(
     title="PDF OCR API",
-    description="Extract text and layout from PDF documents using DotsOCR",
-    version="1.0.0"
+    description="Extract text and layout from PDF documents using DotsOCR with vLLM batch processing",
+    version="2.0.0"
 )
 
-# CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -51,14 +48,13 @@ app.add_middleware(
 # -------------------------------------------------
 from modal import Function as ModalFunction
 
-# Make sure to deploy first: modal deploy vllm_server.py
 try:
-    ocr_single_page_fn = ModalFunction.from_name("visor-vllm", "ocr_single_page")
+    ocr_batch_pages_fn = ModalFunction.from_name("visor-vllm", "ocr_batch_pages")
 except Exception as e:
-    print(f"⚠️  ERROR: Could not find Modal function 'ocr_single_page'.")
+    print(f"⚠️  ERROR: Could not find Modal function 'ocr_batch_pages'.")
     print(f"   Make sure to deploy first: modal deploy vllm_server.py")
     print(f"   Error: {e}")
-    ocr_single_page_fn = None
+    ocr_batch_pages_fn = None
 
 # -------------------------------------------------
 # Helper Functions
@@ -88,38 +84,33 @@ def image_to_base64(image: Image.Image) -> str:
 
 def draw_boxes_on_image(image: Image.Image, boxes: List[dict]) -> Image.Image:
     """Draw bounding boxes on an image with category labels"""
-    # Create a copy to avoid modifying the original
     img_copy = image.copy()
     draw = ImageDraw.Draw(img_copy)
     
     print(f"Drawing {len(boxes)} boxes on image...")
     
-    # Color mapping for different categories
     color_map = {
-        "Text": "#00FF00",          # Green
-        "Title": "#FF0000",         # Red
-        "Section-header": "#FF00FF", # Magenta
-        "Picture": "#00FFFF",       # Cyan
-        "Table": "#FFFF00",         # Yellow
-        "Formula": "#FFA500",       # Orange
-        "Caption": "#FFC0CB",       # Pink
-        "Footnote": "#A9A9A9",      # Gray
-        "List-item": "#90EE90",     # Light Green
-        "Page-header": "#87CEEB",   # Sky Blue
-        "Page-footer": "#DDA0DD",   # Plum
+        "Text": "#00FF00",
+        "Title": "#FF0000",
+        "Section-header": "#FF00FF",
+        "Picture": "#00FFFF",
+        "Table": "#FFFF00",
+        "Formula": "#FFA500",
+        "Caption": "#FFC0CB",
+        "Footnote": "#A9A9A9",
+        "List-item": "#90EE90",
+        "Page-header": "#87CEEB",
+        "Page-footer": "#DDA0DD",
     }
     
-    # Try to load a font, fall back to default if not available
     try:
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
     except:
         try:
-            # Try alternative font path
             font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 20)
         except:
             font = ImageFont.load_default()
     
-    # Draw each box
     for i, box in enumerate(boxes):
         bbox = box.get("bbox", [])
         if len(bbox) != 4:
@@ -128,16 +119,12 @@ def draw_boxes_on_image(image: Image.Image, boxes: List[dict]) -> Image.Image:
             
         x1, y1, x2, y2 = map(int, bbox)
         category = box.get("category", "Unknown")
-        
-        # Get color for this category
         color = color_map.get(category, "#FFFFFF")
         
-        # Draw rectangle with thicker border
         draw.rectangle([x1, y1, x2, y2], outline=color, width=4)
         
-        # Draw category label with background
         label = f"{category}"
-        label_y = max(y1 - 25, 5)  # Keep it within image bounds
+        label_y = max(y1 - 25, 5)
         
         try:
             bbox_text = draw.textbbox((x1, label_y), label, font=font)
@@ -151,64 +138,16 @@ def draw_boxes_on_image(image: Image.Image, boxes: List[dict]) -> Image.Image:
     return img_copy
 
 # -------------------------------------------------
-# Internal Helper to run and process map
-# -------------------------------------------------
-async def run_ocr_map(image_b64_list: List[str]) -> Dict[str, PageResult]:
-    """
-    Runs the .map() call with exception handling and returns the
-    structured dictionary.
-    """
-    if ocr_single_page_fn is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Modal OCR function not available. Deploy with: modal deploy vllm_server.py"
-        )
-        
-    print(f"Calling Modal OCR function via .map() for {len(image_b64_list)} pages...")
-    
-    results_dict: Dict[str, PageResult] = {}
-    
-    # We use .map.aio() for async compatibility
-    i = 0
-    try:
-        async for result in ocr_single_page_fn.map.aio(image_b64_list, return_exceptions=True):
-            page_key = f"page_{i}"
-            if isinstance(result, Exception):
-                # If the result is an exception, log it as an error
-                print(f"Error on page {i}: {result}")
-                results_dict[page_key] = PageResult(
-                    status="error",
-                    error=str(result)
-                )
-            else:
-                # Otherwise, it's a successful result
-                results_dict[page_key] = PageResult(
-                    status="success",
-                    data=result
-                )
-            i += 1
-            
-    except Exception as e:
-        # This catches errors with the map call itself (e.g., connection issue)
-        print(f"A critical error occurred during the .map() call: {e}")
-        # Add error entries for any pages that didn't get processed
-        while i < len(image_b64_list):
-            results_dict[f"page_{i}"] = PageResult(status="error", error=f"Map call failed: {e}")
-            i += 1
-            
-    return results_dict
-
-# -------------------------------------------------
-# API Endpoints (UPDATED)
+# API Endpoints
 # -------------------------------------------------
 @app.get("/")
 async def root():
     """Health check endpoint"""
     return {
         "status": "running",
-        "service": "PDF OCR API",
-        "version": "1.0.0",
-        "modal_connected": ocr_single_page_fn is not None
+        "service": "PDF OCR API with vLLM Batch Processing",
+        "version": "2.0.0",
+        "modal_connected": ocr_batch_pages_fn is not None
     }
 
 @app.post("/ocr")
@@ -218,10 +157,16 @@ async def ocr_pdf_save(
     output_folder: Optional[str] = None
 ):
     """
-    Extract text and layout from a PDF and save results to a folder
+    Extract text and layout from a PDF using vLLM batch processing
     """
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
+    
+    if ocr_batch_pages_fn is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Modal OCR function not available. Deploy with: modal deploy vllm_server.py"
+        )
     
     try:
         # Create output folder
@@ -243,9 +188,15 @@ async def ocr_pdf_save(
         print("Encoding images to base64...")
         image_b64_list = [image_to_base64(img) for img in images]
         
-        # Run the robust map call
-        results_by_page_dict = await run_ocr_map(image_b64_list)
-
+        # Call the batch processing function (single Modal call for all pages)
+        print(f"Calling Modal OCR batch function for {len(image_b64_list)} pages...")
+        results_dict = ocr_batch_pages_fn.remote(image_b64_list)
+        
+        # Convert to PageResult objects
+        results_by_page = {}
+        for page_key, result_data in results_dict.items():
+            results_by_page[page_key] = PageResult(**result_data)
+        
         saved_files = {
             "json_file": None,
             "annotated_images": [],
@@ -254,16 +205,14 @@ async def ocr_pdf_save(
         
         # Save JSON results
         json_path = output_path / "ocr_results.json"
-        
-        # We need to convert Pydantic models to dicts for json.dump
-        serializable_results = {key: value.model_dump() for key, value in results_by_page_dict.items()}
+        serializable_results = {key: value.model_dump() for key, value in results_by_page.items()}
         
         with open(json_path, 'w') as f:
             json.dump({
                 "filename": file.filename,
                 "total_pages": total_pages,
                 "dpi": dpi,
-                "results_by_page": serializable_results # Save the new dict format
+                "results_by_page": serializable_results
             }, f, indent=2)
         saved_files["json_file"] = str(json_path)
         print(f"Saved JSON to: {json_path}")
@@ -275,9 +224,9 @@ async def ocr_pdf_save(
             img.save(orig_path)
             saved_files["original_images"].append(str(orig_path))
             
-            # Check status before trying to get data for boxes
+            # Get boxes for annotation
             page_key = f"page_{page_num}"
-            page_result = results_by_page_dict.get(page_key)
+            page_result = results_by_page.get(page_key)
             
             boxes = []
             if page_result and page_result.status == "success":
@@ -297,20 +246,17 @@ async def ocr_pdf_save(
             "output_folder": str(output_path),
             "total_pages": total_pages,
             "files": saved_files,
-            "message": f"Successfully saved {total_pages} pages to {output_path}"
+            "message": f"Successfully processed {total_pages} pages using vLLM batch processing"
         }
     
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error processing PDF save: {str(e)}")
+        print(f"Error processing PDF: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
 
-# -------------------------------------------------
-# Run with: uvicorn server:app --reload --host 0.0.0.0 --port 8080
-# -------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("server:app", host="0.0.0.0", port=8080, reload=True)
