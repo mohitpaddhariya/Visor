@@ -19,11 +19,18 @@ class PageResult(BaseModel):
     data: Optional[List[Dict[str, Any]]] = None
     error: Optional[str] = None
 
+class OCRRequest(BaseModel):
+    """Request model for OCR endpoint"""
+    dpi: int = 200
+    output_folder: Optional[str] = None
+
 class OCRResponse(BaseModel):
     """The main API response."""
     success: bool
-    results: Dict[str, PageResult]
+    filename: str
     total_pages: int
+    dpi: int
+    results: Dict[str, Dict[str, Any]]  # Raw vLLM response
     message: str = ""
 
 # -------------------------------------------------
@@ -150,14 +157,15 @@ async def root():
         "modal_connected": ocr_batch_pages_fn is not None
     }
 
-@app.post("/ocr")
+@app.post("/ocr", response_model=OCRResponse)
 async def ocr_pdf_save(
     file: UploadFile = File(...),
     dpi: int = 200,
     output_folder: Optional[str] = None
-):
+) -> OCRResponse:
     """
-    Extract text and layout from a PDF using vLLM batch processing
+    Extract text and layout from a PDF using vLLM batch processing.
+    Returns the raw JSON response from vLLM.
     """
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
@@ -169,14 +177,14 @@ async def ocr_pdf_save(
         )
     
     try:
-        # Create output folder
-        if output_folder is None:
-            base_name = Path(file.filename).stem
-            output_folder = f"./ocr_output/{base_name}"
+        # # Create output folder
+        # if output_folder is None:
+        #     base_name = Path(file.filename).stem
+        #     output_folder = f"./ocr_output/{base_name}"
         
-        output_path = Path(output_folder)
-        output_path.mkdir(parents=True, exist_ok=True)
-        print(f"Saving results to: {output_path}")
+        # output_path = Path(output_folder)
+        # output_path.mkdir(parents=True, exist_ok=True)
+        # print(f"Saving results to: {output_path}")
         
         pdf_bytes = await file.read()
         
@@ -192,62 +200,73 @@ async def ocr_pdf_save(
         print(f"Calling Modal OCR batch function for {len(image_b64_list)} pages...")
         results_dict = ocr_batch_pages_fn.remote(image_b64_list)
         
-        # Convert to PageResult objects
-        results_by_page = {}
-        for page_key, result_data in results_dict.items():
-            results_by_page[page_key] = PageResult(**result_data)
+        # Return the raw vLLM response
+        return OCRResponse(
+            success=True,
+            filename=file.filename,
+            total_pages=total_pages,
+            dpi=dpi,
+            results=results_dict,  # Raw JSON from vLLM
+            message=f"Successfully processed {total_pages} pages using vLLM batch processing"
+        )
         
-        saved_files = {
-            "json_file": None,
-            "annotated_images": [],
-            "original_images": []
-        }
+        # # OLD LOGIC - Convert to PageResult objects and save files
+        # # Convert to PageResult objects
+        # results_by_page = {}
+        # for page_key, result_data in results_dict.items():
+        #     results_by_page[page_key] = PageResult(**result_data)
         
-        # Save JSON results
-        json_path = output_path / "ocr_results.json"
-        serializable_results = {key: value.model_dump() for key, value in results_by_page.items()}
+        # saved_files = {
+        #     "json_file": None,
+        #     "annotated_images": [],
+        #     "original_images": []
+        # }
         
-        with open(json_path, 'w') as f:
-            json.dump({
-                "filename": file.filename,
-                "total_pages": total_pages,
-                "dpi": dpi,
-                "results_by_page": serializable_results
-            }, f, indent=2)
-        saved_files["json_file"] = str(json_path)
-        print(f"Saved JSON to: {json_path}")
+        # # Save JSON results
+        # json_path = output_path / "ocr_results.json"
+        # serializable_results = {key: value.model_dump() for key, value in results_by_page.items()}
         
-        # Save images with annotations
-        for page_num, img in enumerate(images):
-            # Save original image
-            orig_path = output_path / f"page_{page_num}_original.png"
-            img.save(orig_path)
-            saved_files["original_images"].append(str(orig_path))
+        # with open(json_path, 'w') as f:
+        #     json.dump({
+        #         "filename": file.filename,
+        #         "total_pages": total_pages,
+        #         "dpi": dpi,
+        #         "results_by_page": serializable_results
+        #     }, f, indent=2)
+        # saved_files["json_file"] = str(json_path)
+        # print(f"Saved JSON to: {json_path}")
+        
+        # # Save images with annotations
+        # for page_num, img in enumerate(images):
+        #     # Save original image
+        #     orig_path = output_path / f"page_{page_num}_original.png"
+        #     img.save(orig_path)
+        #     saved_files["original_images"].append(str(orig_path))
             
-            # Get boxes for annotation
-            page_key = f"page_{page_num}"
-            page_result = results_by_page.get(page_key)
+        #     # Get boxes for annotation
+        #     page_key = f"page_{page_num}"
+        #     page_result = results_by_page.get(page_key)
             
-            boxes = []
-            if page_result and page_result.status == "success":
-                boxes = page_result.data
-            elif page_result and page_result.status == "error":
-                print(f"Skipping annotations for page {page_num} due to error: {page_result.error}")
+        #     boxes = []
+        #     if page_result and page_result.status == "success":
+        #         boxes = page_result.data
+        #     elif page_result and page_result.status == "error":
+        #         print(f"Skipping annotations for page {page_num} due to error: {page_result.error}")
             
-            annotated_img = draw_boxes_on_image(img, boxes)
-            annotated_path = output_path / f"page_{page_num}_annotated.png"
-            annotated_img.save(annotated_path)
-            saved_files["annotated_images"].append(str(annotated_path))
+        #     annotated_img = draw_boxes_on_image(img, boxes)
+        #     annotated_path = output_path / f"page_{page_num}_annotated.png"
+        #     annotated_img.save(annotated_path)
+        #     saved_files["annotated_images"].append(str(annotated_path))
             
-            print(f"Saved page {page_num}: original and annotated")
+        #     print(f"Saved page {page_num}: original and annotated")
         
-        return {
-            "success": True,
-            "output_folder": str(output_path),
-            "total_pages": total_pages,
-            "files": saved_files,
-            "message": f"Successfully processed {total_pages} pages using vLLM batch processing"
-        }
+        # return {
+        #     "success": True,
+        #     "output_folder": str(output_path),
+        #     "total_pages": total_pages,
+        #     "files": saved_files,
+        #     "message": f"Successfully processed {total_pages} pages using vLLM batch processing"
+        # }
     
     except HTTPException:
         raise
@@ -257,6 +276,7 @@ async def ocr_pdf_save(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
 
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8080, reload=True)
+    uvicorn.run("server:app", host="0.0.0.0", port=8003, reload=True)
