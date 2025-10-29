@@ -2,6 +2,7 @@ import io
 import base64
 import json
 import traceback
+from datetime import datetime
 from typing import List, Optional, Any, Dict
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,11 +25,13 @@ except FileNotFoundError:
             "dotsocr": {
                 "name": "DotsOCR",
                 "description": "High-performance OCR model for document understanding",
+                "supports_bounding_boxes": True,
                 "features": ["layout_detection", "bbox_extraction", "structured_json_output"]
             },
             "lightonocr": {
                 "name": "LightOnOCR",
                 "description": "Efficient OCR model for markdown text extraction",
+                "supports_bounding_boxes": False,
                 "features": ["markdown_extraction", "text_recognition"]
             }
         },
@@ -71,6 +74,7 @@ class OCRResponse(BaseModel):
     results: Dict[str, Dict[str, Any]]
     annotated_images: List[str] = []  # base64 PNGs if annotate=True
     message: str = ""
+    created_at: datetime  # Timestamp when OCR was processed
 
 
 # -------------------------------------------------
@@ -244,9 +248,12 @@ async def ocr_pdf(
         # Call multi-model OCR Modal function
         raw_results = ocr_batch_pages_fn.remote(b64_images, model=model)
 
-        # Optional: Annotate images (only for dotsocr)
+        # Optional: Annotate images (only for models that support bounding boxes)
+        model_config = MODAL_CONFIG.get("models", {}).get(model, {})
+        supports_bbox = model_config.get("supports_bounding_boxes", False)
+        
         annotated_b64 = []
-        if annotate and model == "dotsocr":
+        if annotate and supports_bbox:
             for idx, img in enumerate(images):
                 page_key = f"page_{idx}"
                 page_res = raw_results.get(page_key, {})
@@ -266,7 +273,8 @@ async def ocr_pdf(
             model=model,
             results=raw_results,
             annotated_images=annotated_b64,
-            message=f"Processed {total_pages} pages with {model_name}"
+            message=f"Processed {total_pages} pages with {model_name}",
+            created_at=datetime.now()
         )
 
     except HTTPException:

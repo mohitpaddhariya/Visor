@@ -3,6 +3,7 @@
     "dotsocr": {
       "name": "DotsOCR",
       "description": "High-performance OCR model for document understanding with layout analysis",
+      "supports_bounding_boxes": true,
       "features": [
         "layout_detection",
         "bbox_extraction",
@@ -29,6 +30,7 @@
     "lightonocr": {
       "name": "LightOnOCR",
       "description": "Efficient OCR model specialized in clean markdown text extraction",
+      "supports_bounding_boxes": false,
       "features": [
         "markdown_extraction",
         "text_recognition",
