@@ -1,0 +1,48 @@
+{
+  "models": {
+    "dotsocr": {
+      "name": "DotsOCR",
+      "description": "High-performance OCR model for document understanding with layout analysis",
+      "features": [
+        "layout_detection",
+        "bbox_extraction",
+        "category_classification",
+        "structured_json_output",
+        "reading_order_sorting",
+        "text_formatting_rules"
+      ],
+      "categories": [
+        "Caption", "Footnote", "Formula", "List-item",
+        "Page-footer", "Page-header", "Picture", "Section-header",
+        "Table", "Text", "Title"
+      ],
+      "output_format": "json_list",
+      "text_formatting": {
+        "Picture": "omit_text",
+        "Formula": "latex",
+        "Table": "html",
+        "default": "markdown"
+      },
+      "temperature": 0.0,
+      "max_tokens": 8192
+    },
+    "lightonocr": {
+      "name": "LightOnOCR",
+      "description": "Efficient OCR model specialized in clean markdown text extraction",
+      "features": [
+        "markdown_extraction",
+        "text_recognition",
+        "clean_formatting"
+      ],
+      "categories": [],
+      "output_format": "markdown_string",
+      "text_formatting": {
+        "default": "markdown"
+      },
+      "temperature": 0.2,
+      "max_tokens": 4096
+    }
+  },
+  "default_model": "dotsocr",
+  "supported_models": ["dotsocr", "lightonocr"]
+}

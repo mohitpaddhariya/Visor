@@ -193,7 +193,7 @@ def ocr_batch_pages(image_b64_list: List[str]) -> Dict[str, Dict]:
         server_url = serve.get_web_url()
     except modal.exception.NotFoundError:
         raise RuntimeError(
-            "vLLM server is not deployed. Deploy it first with `modal deploy vllm_server.py`"
+            "vLLM server is not deployed. Deploy it first with `modal deploy visor_multi_ocr.py`"
         )
 
     if not server_url:
