@@ -1,8 +1,16 @@
 "use client"
 
-import React, { createContext, useContext, useReducer, useRef, ReactNode } from "react"
+import React, { createContext, useContext, useReducer, useRef, ReactNode, useEffect } from "react"
 import { ParsedData } from "@/lib/constants"
-import { uploadPdfForOcr, parseApiError } from "@/lib/api"
+import { uploadPdfForOcr, parseApiError, getAvailableModels } from "@/lib/api"
+
+// Model info interface
+interface ModelInfo {
+  name: string
+  description: string
+  supports_bounding_boxes: boolean
+  features: string[]
+}
 
 // State interface
 interface AppState {
@@ -12,6 +20,11 @@ interface AppState {
   hoveredBbox: string | null
   error: string | null
   processingFile: string
+  selectedModel: string
+  availableModels: ModelInfo[]
+  isLoadingModels: boolean
+  dpi: number
+  enableAnnotations: boolean
 }
 
 // Action types
@@ -22,6 +35,11 @@ type AppAction =
   | { type: "SET_HOVERED_BBOX"; payload: string | null }
   | { type: "SET_ERROR"; payload: string | null }
   | { type: "SET_PROCESSING_FILE"; payload: string }
+  | { type: "SET_SELECTED_MODEL"; payload: string }
+  | { type: "SET_AVAILABLE_MODELS"; payload: ModelInfo[] }
+  | { type: "SET_LOADING_MODELS"; payload: boolean }
+  | { type: "SET_DPI"; payload: number }
+  | { type: "SET_ENABLE_ANNOTATIONS"; payload: boolean }
   | { type: "START_OCR"; payload: string }
   | { type: "OCR_SUCCESS"; payload: ParsedData }
   | { type: "OCR_ERROR"; payload: string }
@@ -36,6 +54,11 @@ const initialState: AppState = {
   hoveredBbox: null,
   error: null,
   processingFile: "",
+  selectedModel: "dotsocr", // Default model
+  availableModels: [],
+  isLoadingModels: false,
+  dpi: 200, // Default DPI
+  enableAnnotations: false,
 }
 
 // Reducer function
@@ -53,6 +76,16 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, error: action.payload }
     case "SET_PROCESSING_FILE":
       return { ...state, processingFile: action.payload }
+    case "SET_SELECTED_MODEL":
+      return { ...state, selectedModel: action.payload }
+    case "SET_AVAILABLE_MODELS":
+      return { ...state, availableModels: action.payload }
+    case "SET_LOADING_MODELS":
+      return { ...state, isLoadingModels: action.payload }
+    case "SET_DPI":
+      return { ...state, dpi: action.payload }
+    case "SET_ENABLE_ANNOTATIONS":
+      return { ...state, enableAnnotations: action.payload }
     case "START_OCR":
       return {
         ...state,
@@ -80,7 +113,15 @@ function appReducer(state: AppState, action: AppAction): AppState {
         error: "Processing cancelled by user",
       }
     case "RESET":
-      return initialState
+      return {
+        ...initialState,
+        // Preserve model settings after reset
+        selectedModel: state.selectedModel,
+        availableModels: state.availableModels,
+        isLoadingModels: state.isLoadingModels,
+        dpi: state.dpi,
+        enableAnnotations: state.enableAnnotations,
+      }
     default:
       return state
   }
@@ -94,9 +135,13 @@ interface AppContextType extends AppState {
   setHoveredBbox: (id: string | null) => void
   setError: (error: string | null) => void
   setProcessingFile: (filename: string) => void
+  setSelectedModel: (model: string) => void
+  setDpi: (dpi: number) => void
+  setEnableAnnotations: (enable: boolean) => void
   handleRunOcr: () => Promise<void>
   handleCancelOcr: () => void
   resetApp: () => void
+  fetchAvailableModels: () => Promise<void>
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined)
@@ -104,6 +149,76 @@ const AppContext = createContext<AppContextType | undefined>(undefined)
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, initialState)
   const abortControllerRef = useRef<AbortController | null>(null)
+
+  // Fetch available models on mount
+  useEffect(() => {
+    fetchAvailableModels()
+  }, [])
+
+  const fetchAvailableModels = async () => {
+    dispatch({ type: "SET_LOADING_MODELS", payload: true })
+    try {
+      const result = await getAvailableModels()
+      if (result.success && result.data) {
+        // Parse the models data from the API
+        const apiData = result.data as any
+        
+        if (apiData.models && typeof apiData.models === 'object') {
+          // Transform the models object into an array with the supports_bounding_boxes flag
+          const modelsArray = Object.entries(apiData.models).map(([key, value]: [string, any]) => ({
+            name: key,
+            description: value.description || '',
+            supports_bounding_boxes: value.supports_bounding_boxes || false,
+            features: value.features || []
+          }))
+          dispatch({ type: "SET_AVAILABLE_MODELS", payload: modelsArray })
+        } else if (Array.isArray(apiData)) {
+          dispatch({ type: "SET_AVAILABLE_MODELS", payload: apiData })
+        } else {
+          // Fallback to default models if API doesn't return expected format
+          dispatch({
+            type: "SET_AVAILABLE_MODELS",
+            payload: [
+              {
+                name: "dotsocr",
+                description: "Structured layout JSON with bbox, categories, and formatted text",
+                supports_bounding_boxes: true,
+                features: ["Bounding boxes", "Element categories", "Layout analysis"]
+              },
+              {
+                name: "lightonocr",
+                description: "Clean markdown text extraction",
+                supports_bounding_boxes: false,
+                features: ["Markdown output", "Fast processing", "Clean text"]
+              }
+            ]
+          })
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch models:", error)
+      // Set default models on error
+      dispatch({
+        type: "SET_AVAILABLE_MODELS",
+        payload: [
+          {
+            name: "dotsocr",
+            description: "Structured layout JSON with bbox, categories, and formatted text",
+            supports_bounding_boxes: true,
+            features: ["Bounding boxes", "Element categories", "Layout analysis"]
+          },
+          {
+            name: "lightonocr",
+            description: "Clean markdown text extraction",
+            supports_bounding_boxes: false,
+            features: ["Markdown output", "Fast processing", "Clean text"]
+          }
+        ]
+      })
+    } finally {
+      dispatch({ type: "SET_LOADING_MODELS", payload: false })
+    }
+  }
 
   const handleRunOcr = async () => {
     if (!state.uploadedFile) return
@@ -115,7 +230,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       const result = await uploadPdfForOcr(state.uploadedFile, {
-        dpi: 200, // Default DPI, can be made configurable
+        dpi: state.dpi,
+        model: state.selectedModel,
+        annotate: state.enableAnnotations,
       })
 
       if (result.success && result.data) {
@@ -157,9 +274,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setHoveredBbox: (id) => dispatch({ type: "SET_HOVERED_BBOX", payload: id }),
     setError: (error) => dispatch({ type: "SET_ERROR", payload: error }),
     setProcessingFile: (filename) => dispatch({ type: "SET_PROCESSING_FILE", payload: filename }),
+    setSelectedModel: (model) => dispatch({ type: "SET_SELECTED_MODEL", payload: model }),
+    setDpi: (dpi) => dispatch({ type: "SET_DPI", payload: dpi }),
+    setEnableAnnotations: (enable) => dispatch({ type: "SET_ENABLE_ANNOTATIONS", payload: enable }),
     handleRunOcr,
     handleCancelOcr,
     resetApp,
+    fetchAvailableModels,
   }
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

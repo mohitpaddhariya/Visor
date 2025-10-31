@@ -14,6 +14,7 @@ export default function DocumentPreview() {
     hoveredBbox,
     setHoveredBbox,
     setUploadedFile,
+    availableModels,
   } = useApp()
 
   const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map())
@@ -183,6 +184,14 @@ export default function DocumentPreview() {
 
     if (!parsedData?.results_by_page) return
 
+    // Check if the current model supports bounding boxes
+    const currentModel = parsedData.model
+    const modelInfo = availableModels.find(m => m.name === currentModel)
+    const supportsBoundingBoxes = modelInfo?.supports_bounding_boxes ?? true // Default to true for backward compatibility
+
+    // Only draw bounding boxes if the model supports them
+    if (!supportsBoundingBoxes) return
+
     const pageKey = `page_${pageNum - 1}`
     const pageResult = parsedData.results_by_page[pageKey]
 
@@ -230,7 +239,7 @@ export default function DocumentPreview() {
         ctx.fillText(label, scaledX1 + padding, scaledY1 - labelHeight + padding)
       }
     })
-  }, [pageImages, pageSizes, canvasWidth, parsedData, hoveredBbox])
+  }, [pageImages, pageSizes, canvasWidth, parsedData, hoveredBbox, availableModels])
 
   // Redraw all pages when data changes
   useEffect(() => {
@@ -255,6 +264,14 @@ export default function DocumentPreview() {
 
   const handleCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>, pageNum: number) => {
     if (!parsedData?.results_by_page) return
+    
+    // Check if the current model supports bounding boxes
+    const currentModel = parsedData.model
+    const modelInfo = availableModels.find(m => m.name === currentModel)
+    const supportsBoundingBoxes = modelInfo?.supports_bounding_boxes ?? true
+    
+    // Only handle hover if the model supports bounding boxes
+    if (!supportsBoundingBoxes) return
     
     const canvas = e.currentTarget
     const rect = canvas.getBoundingClientRect()
@@ -290,7 +307,7 @@ export default function DocumentPreview() {
       })
       if (!found) setHoveredBbox(null)
     }
-  }, [parsedData, pageSizes, setHoveredBbox])
+  }, [parsedData, pageSizes, setHoveredBbox, availableModels])
 
   return (
     <div

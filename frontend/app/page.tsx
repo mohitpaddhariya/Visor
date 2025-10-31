@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { Moon, Sun, RotateCcw } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
@@ -10,6 +11,12 @@ import { useApp } from "@/contexts/app-context"
 export default function Home() {
   const { theme, setTheme } = useTheme()
   const { resetApp, uploadedFile } = useApp()
+  const [mounted, setMounted] = useState(false)
+
+  // Prevent hydration mismatch
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const toggleTheme = () => {
     setTheme(theme === "dark" ? "light" : "dark")
@@ -47,7 +54,7 @@ export default function Home() {
             aria-label="Toggle theme"
             className="h-8 w-8 sm:h-10 sm:w-10"
           >
-            {theme === "dark" ? (
+            {mounted && theme === "dark" ? (
               <Sun className="w-4 h-4 sm:w-5 sm:h-5" />
             ) : (
               <Moon className="w-4 h-4 sm:w-5 sm:h-5" />

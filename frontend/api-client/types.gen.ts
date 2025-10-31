@@ -5,9 +5,9 @@ export type ClientOptions = {
 };
 
 /**
- * Body_ocr_pdf_save_ocr_post
+ * Body_ocr_pdf_ocr_post
  */
-export type BodyOcrPdfSaveOcrPost = {
+export type BodyOcrPdfOcrPost = {
     /**
      * File
      */
@@ -26,8 +26,6 @@ export type HttpValidationError = {
 
 /**
  * OCRResponse
- *
- * The main API response.
  */
 export type OcrResponse = {
     /**
@@ -47,6 +45,10 @@ export type OcrResponse = {
      */
     dpi: number;
     /**
+     * Model
+     */
+    model: string;
+    /**
      * Results
      */
     results: {
@@ -55,9 +57,17 @@ export type OcrResponse = {
         };
     };
     /**
+     * Annotated Images
+     */
+    annotated_images?: Array<string>;
+    /**
      * Message
      */
     message?: string;
+    /**
+     * Created At
+     */
+    created_at: Date;
 };
 
 /**
@@ -92,14 +102,38 @@ export type RootGetResponses = {
     200: unknown;
 };
 
-export type OcrPdfSaveOcrPostData = {
-    body: BodyOcrPdfSaveOcrPost;
+export type GetAvailableModelsOcrModelsGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/ocr/models';
+};
+
+export type GetAvailableModelsOcrModelsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type OcrPdfOcrPostData = {
+    body: BodyOcrPdfOcrPost;
     path?: never;
     query?: {
         /**
          * Dpi
          */
         dpi?: number;
+        /**
+         * Model
+         *
+         * OCR model to use
+         */
+        model?: string;
+        /**
+         * Annotate
+         */
+        annotate?: boolean;
         /**
          * Output Folder
          */
@@ -108,20 +142,20 @@ export type OcrPdfSaveOcrPostData = {
     url: '/ocr';
 };
 
-export type OcrPdfSaveOcrPostErrors = {
+export type OcrPdfOcrPostErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type OcrPdfSaveOcrPostError = OcrPdfSaveOcrPostErrors[keyof OcrPdfSaveOcrPostErrors];
+export type OcrPdfOcrPostError = OcrPdfOcrPostErrors[keyof OcrPdfOcrPostErrors];
 
-export type OcrPdfSaveOcrPostResponses = {
+export type OcrPdfOcrPostResponses = {
     /**
      * Successful Response
      */
     200: OcrResponse;
 };
 
-export type OcrPdfSaveOcrPostResponse = OcrPdfSaveOcrPostResponses[keyof OcrPdfSaveOcrPostResponses];
+export type OcrPdfOcrPostResponse = OcrPdfOcrPostResponses[keyof OcrPdfOcrPostResponses];

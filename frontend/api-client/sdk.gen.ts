@@ -2,8 +2,8 @@
 
 import { type Client, formDataBodySerializer, type Options as Options2, type TDataShape } from './client';
 import { client } from './client.gen';
-import { ocrPdfSaveOcrPostResponseTransformer } from './transformers.gen';
-import type { OcrPdfSaveOcrPostData, OcrPdfSaveOcrPostErrors, OcrPdfSaveOcrPostResponses, RootGetData, RootGetResponses } from './types.gen';
+import { ocrPdfOcrPostResponseTransformer } from './transformers.gen';
+import type { GetAvailableModelsOcrModelsGetData, GetAvailableModelsOcrModelsGetResponses, OcrPdfOcrPostData, OcrPdfOcrPostErrors, OcrPdfOcrPostResponses, RootGetData, RootGetResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -21,8 +21,6 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
 
 /**
  * Root
- *
- * Health check endpoint
  */
 export const rootGet = <ThrowOnError extends boolean = false>(options?: Options<RootGetData, ThrowOnError>) => {
     return (options?.client ?? client).get<RootGetResponses, unknown, ThrowOnError>({
@@ -33,15 +31,31 @@ export const rootGet = <ThrowOnError extends boolean = false>(options?: Options<
 };
 
 /**
- * Ocr Pdf Save
+ * Get Available Models
  *
- * Extract text and layout from a PDF using vLLM batch processing.
- * Returns the raw JSON response from vLLM.
+ * Get detailed information about available OCR models and their features.
  */
-export const ocrPdfSaveOcrPost = <ThrowOnError extends boolean = false>(options: Options<OcrPdfSaveOcrPostData, ThrowOnError>) => {
-    return (options.client ?? client).post<OcrPdfSaveOcrPostResponses, OcrPdfSaveOcrPostErrors, ThrowOnError>({
+export const getAvailableModelsOcrModelsGet = <ThrowOnError extends boolean = false>(options?: Options<GetAvailableModelsOcrModelsGetData, ThrowOnError>) => {
+    return (options?.client ?? client).get<GetAvailableModelsOcrModelsGetResponses, unknown, ThrowOnError>({
+        responseType: 'json',
+        url: '/ocr/models',
+        ...options
+    });
+};
+
+/**
+ * Ocr Pdf
+ *
+ * Extract text/layout from PDF using configured OCR models.
+ *
+ * Available models:
+ * - dotsocr: Structured layout JSON with bbox, categories, and formatted text
+ * - lightonocr: Clean markdown text extraction
+ */
+export const ocrPdfOcrPost = <ThrowOnError extends boolean = false>(options: Options<OcrPdfOcrPostData, ThrowOnError>) => {
+    return (options.client ?? client).post<OcrPdfOcrPostResponses, OcrPdfOcrPostErrors, ThrowOnError>({
         ...formDataBodySerializer,
-        responseTransformer: ocrPdfSaveOcrPostResponseTransformer,
+        responseTransformer: ocrPdfOcrPostResponseTransformer,
         responseType: 'json',
         url: '/ocr',
         ...options,

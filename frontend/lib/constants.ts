@@ -7,7 +7,7 @@ export interface BoundingBox {
 
 export interface PageResult {
   status: string
-  data: BoundingBox[]
+  data: BoundingBox[] | string // Can be array of boxes or markdown string
   error: string | null
 }
 
@@ -15,6 +15,7 @@ export interface ParsedData {
   filename: string
   total_pages: number
   dpi: number
+  model: string
   results_by_page: Record<string, PageResult>
   message?: string
   success?: boolean
@@ -40,6 +41,7 @@ export const SAMPLE_PARSED_DATA: ParsedData = {
   filename: "FORM-2.pdf",
   total_pages: 6,
   dpi: 200,
+  model: "dotsocr",
   results_by_page: {
     page_0: {
       status: "success",

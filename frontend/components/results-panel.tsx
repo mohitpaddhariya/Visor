@@ -5,6 +5,7 @@ import { Loader2, Copy, Download, FileJson } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { BoundingBox, PageResult } from "@/lib/constants"
 import { useApp } from "@/contexts/app-context"
+import { SettingsPanel } from "@/components/settings-panel"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import rehypeRaw from "rehype-raw"
@@ -21,14 +22,52 @@ export default function ResultsPanel() {
     processingFile,
     handleRunOcr,
     handleCancelOcr,
+    availableModels,
   } = useApp()
 
   const contentRef = useRef<HTMLDivElement>(null)
+
+  // Check if current model supports bounding boxes
+  const supportsBoundingBoxes = useMemo(() => {
+    if (!parsedData?.model) return true // Default to true for backward compatibility
+    const modelInfo = availableModels.find(m => m.name === parsedData.model)
+    return modelInfo?.supports_bounding_boxes ?? true
+  }, [parsedData?.model, availableModels])
+
+  // Type for processed items
+  type ProcessedItem = BoundingBox & { id: string; pageNum: number }
 
   // Group and sort data from all pages - memoized for performance
   const groupedData = useMemo(() => {
     if (!parsedData?.results_by_page) return []
     
+    // If model doesn't support bounding boxes, data is likely a string
+    if (!supportsBoundingBoxes) {
+      return Object.entries(parsedData.results_by_page)
+        .sort(([keyA], [keyB]) => {
+          const numA = parseInt(keyA.split("_")[1])
+          const numB = parseInt(keyB.split("_")[1])
+          return numA - numB
+        })
+        .flatMap(([pageKey, page]: [string, PageResult]) => {
+          if (page.status === "success" && page.data) {
+            const pageNum = parseInt(pageKey.split("_")[1])
+            // For string data (markdown), create a single item
+            if (typeof page.data === 'string') {
+              return [{
+                text: page.data,
+                id: `${pageNum}-text-0`,
+                pageNum,
+                category: 'Text',
+                bbox: [0, 0, 0, 0] as [number, number, number, number]
+              }] as ProcessedItem[]
+            }
+          }
+          return []
+        })
+    }
+    
+    // For models with bounding boxes (array data)
     return Object.entries(parsedData.results_by_page)
       .sort(([keyA], [keyB]) => {
         const numA = parseInt(keyA.split("_")[1])
@@ -36,24 +75,58 @@ export default function ResultsPanel() {
         return numA - numB
       })
       .flatMap(([pageKey, page]: [string, PageResult]) => {
-        if (page.status === "success" && page.data) {
+        if (page.status === "success" && page.data && Array.isArray(page.data)) {
           const pageNum = parseInt(pageKey.split("_")[1])
           return page.data
-            .filter((item: BoundingBox) => item.text && item.text.trim() !== "")
+            // Don't filter out items - show everything including empty text
             .map((item: BoundingBox, index: number) => ({
               ...item,
               id: `${pageNum}-${item.category}-${index}`,
               pageNum,
-            }))
+            })) as ProcessedItem[]
         }
         return []
       })
-  }, [parsedData])
+  }, [parsedData, supportsBoundingBoxes])
 
   // Group by page for better structure - memoized
   const groupedByPage = useMemo(() => {
     if (!parsedData?.results_by_page) return []
     
+    console.log('Processing parsedData:', parsedData)
+    console.log('Supports bounding boxes:', supportsBoundingBoxes)
+    
+    // If model doesn't support bounding boxes, data is likely a string
+    if (!supportsBoundingBoxes) {
+      return Object.entries(parsedData.results_by_page)
+        .sort(([keyA], [keyB]) => {
+          const numA = parseInt(keyA.split("_")[1])
+          const numB = parseInt(keyB.split("_")[1])
+          return numA - numB
+        })
+        .map(([pageKey, page]: [string, PageResult]) => {
+          if (page.status === "success" && page.data) {
+            const pageNum = parseInt(pageKey.split("_")[1])
+            // For string data (markdown), create a single item
+            if (typeof page.data === 'string') {
+              return {
+                pageNum,
+                items: [{
+                  text: page.data,
+                  id: `${pageNum}-text-0`,
+                  pageNum,
+                  category: 'Text',
+                  bbox: [0, 0, 0, 0] as [number, number, number, number]
+                }] as ProcessedItem[]
+              }
+            }
+          }
+          return null
+        })
+        .filter((item): item is { pageNum: number; items: ProcessedItem[] } => item !== null)
+    }
+    
+    // For models with bounding boxes (array data)
     return Object.entries(parsedData.results_by_page)
       .sort(([keyA], [keyB]) => {
         const numA = parseInt(keyA.split("_")[1])
@@ -61,21 +134,25 @@ export default function ResultsPanel() {
         return numA - numB
       })
       .map(([pageKey, page]: [string, PageResult]) => {
-        if (page.status === "success" && page.data) {
+        if (page.status === "success" && page.data && Array.isArray(page.data)) {
           const pageNum = parseInt(pageKey.split("_")[1])
+          console.log(`Page ${pageNum} raw data:`, page.data)
+          console.log(`Page ${pageNum} first item structure:`, page.data[0])
           const pageItems = page.data
-            .filter((item: BoundingBox) => item.text && item.text.trim() !== "")
+            // Don't filter out items - show everything including empty text
             .map((item: BoundingBox, index: number) => ({
               ...item,
               id: `${pageNum}-${item.category}-${index}`,
               pageNum,
-            }))
+            })) as ProcessedItem[]
+          console.log(`Page ${pageNum} processed items:`, pageItems)
+          console.log(`Page ${pageNum} first processed item:`, pageItems[0])
           return { pageNum, items: pageItems }
         }
         return null
       })
-      .filter((item): item is { pageNum: number; items: Array<BoundingBox & { id: string; pageNum: number }> } => item !== null)
-  }, [parsedData])
+      .filter((item): item is { pageNum: number; items: ProcessedItem[] } => item !== null)
+  }, [parsedData, supportsBoundingBoxes])
 
   const handleCopy = useCallback(() => {
     if (!parsedData) return
@@ -202,17 +279,32 @@ export default function ResultsPanel() {
   }), [])
 
   // Render text content using ReactMarkdown for modern, safe rendering
-  const renderContent = useCallback((text: string, id: string) => {
-    if (!text) {
+  const renderContent = useCallback((item: ProcessedItem) => {
+    const text = item.text
+    
+    // Debug logging
+    console.log('Rendering item:', { 
+      id: item.id, 
+      category: item.category, 
+      text: text,
+      textLength: text?.length,
+      hasText: !!text,
+      trimmedLength: text?.trim()?.length 
+    })
+    
+    // Handle missing or empty text
+    if (!text || text.trim() === "") {
       return (
-        <div id={`item-${id}`} className="transition-all duration-150 rounded-md px-2 py-1">
-          <p className="text-muted-foreground italic text-xs sm:text-sm">No text content</p>
+        <div id={`item-${item.id}`} className="transition-all duration-150 rounded-md px-2 py-1">
+          <p className="text-muted-foreground italic text-xs sm:text-sm">
+            [{item.category}] - {!text ? 'No text field' : 'Empty text'}
+          </p>
         </div>
       )
     }
 
     return (
-      <div id={`item-${id}`} className="transition-all duration-150 rounded-md prose prose-sm max-w-none">
+      <div id={`item-${item.id}`} className="transition-all duration-150 rounded-md prose prose-sm max-w-none">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeRaw]}
@@ -312,7 +404,7 @@ export default function ResultsPanel() {
                           </div>
                         )}
                         <div className="text-xs sm:text-sm leading-relaxed">
-                          {renderContent(item.text, item.id)}
+                          {renderContent(item)}
                         </div>
                       </div>
                     ))}
@@ -335,15 +427,21 @@ export default function ResultsPanel() {
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center p-6 sm:p-8">
-            <div className="text-center space-y-2">
-              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-muted rounded-xl flex items-center justify-center mx-auto">
-                <span className="text-2xl sm:text-3xl">📄</span>
+            {uploadedFile ? (
+              <div className="w-full max-w-md">
+                <SettingsPanel />
               </div>
-              <div>
-                <p className="text-sm sm:text-base text-foreground font-medium">Ready to Parse</p>
-                <p className="text-xs sm:text-sm text-muted-foreground">Upload a document to begin extraction.</p>
+            ) : (
+              <div className="text-center space-y-2">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-muted rounded-xl flex items-center justify-center mx-auto">
+                  <span className="text-2xl sm:text-3xl">📄</span>
+                </div>
+                <div>
+                  <p className="text-sm sm:text-base text-foreground font-medium">Ready to Parse</p>
+                  <p className="text-xs sm:text-sm text-muted-foreground">Upload a document to begin extraction.</p>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
       </div>

@@ -1,4 +1,4 @@
-import { ocrPdfSaveOcrPost, rootGet } from "@/api-client";
+import { ocrPdfOcrPost, rootGet, getAvailableModelsOcrModelsGet } from "@/api-client";
 import type { OcrResponse } from "@/api-client/types.gen";
 import type { ParsedData, PageResult } from "./constants";
 
@@ -12,6 +12,7 @@ function transformOcrResponse(ocrResponse: OcrResponse): ParsedData {
     filename: ocrResponse.filename,
     total_pages: ocrResponse.total_pages,
     dpi: ocrResponse.dpi,
+    model: ocrResponse.model,
     results_by_page,
     message: ocrResponse.message,
     success: ocrResponse.success,
@@ -48,6 +49,8 @@ export async function uploadPdfForOcr(
   file: File,
   options?: {
     dpi?: number;
+    model?: string;
+    annotate?: boolean;
     outputFolder?: string | null;
   }
 ) {
@@ -60,12 +63,14 @@ export async function uploadPdfForOcr(
     console.log("Uploading PDF for OCR:", file.name);
     console.log("API Base URL:", process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8003');
 
-    const response = await ocrPdfSaveOcrPost({
+    const response = await ocrPdfOcrPost({
       body: {
         file,
       },
       query: {
         dpi: options?.dpi,
+        model: options?.model,
+        annotate: options?.annotate,
         output_folder: options?.outputFolder,
       },
     });
@@ -133,6 +138,8 @@ export async function batchProcessPdfs(
   files: File[],
   options?: {
     dpi?: number;
+    model?: string;
+    annotate?: boolean;
     outputFolder?: string | null;
   }
 ) {
@@ -201,3 +208,99 @@ export function parseApiError(error: any): string {
 
   return handleApiError(error);
 }
+
+/**
+ * Get available OCR models and their features
+ * @returns Promise with information about available OCR models
+ */
+export async function getAvailableModels() {
+  try {
+    const response = await getAvailableModelsOcrModelsGet();
+    
+    if (!response) {
+      throw new Error("No response received from models endpoint");
+    }
+
+    return {
+      success: true,
+      data: response.data,
+    };
+  } catch (error) {
+    console.error("Failed to fetch available models:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to fetch models",
+    };
+  }
+}
+
+/**
+ * Process a PDF file with a specific OCR model
+ * @param file - The PDF file to process
+ * @param model - The OCR model to use (e.g., 'dotsocr', 'lightonocr')
+ * @param options - Additional processing options
+ * @returns Promise with the parsed OCR results
+ */
+export async function processPdfWithModel(
+  file: File,
+  model: string,
+  options?: {
+    dpi?: number;
+    annotate?: boolean;
+    outputFolder?: string | null;
+  }
+) {
+  return uploadPdfForOcr(file, { model, ...options });
+}
+
+/**
+ * Process a PDF file with annotations enabled
+ * @param file - The PDF file to process
+ * @param options - Additional processing options
+ * @returns Promise with the parsed OCR results including annotated images
+ */
+export async function processPdfWithAnnotations(
+  file: File,
+  options?: {
+    dpi?: number;
+    model?: string;
+    outputFolder?: string | null;
+  }
+) {
+  return uploadPdfForOcr(file, { annotate: true, ...options });
+}
+
+/**
+ * Process a PDF file using the DotsOCR model for structured layout
+ * @param file - The PDF file to process
+ * @param options - Additional processing options
+ * @returns Promise with structured layout JSON including bbox and categories
+ */
+export async function processPdfWithDotsOcr(
+  file: File,
+  options?: {
+    dpi?: number;
+    annotate?: boolean;
+    outputFolder?: string | null;
+  }
+) {
+  return uploadPdfForOcr(file, { model: 'dotsocr', ...options });
+}
+
+/**
+ * Process a PDF file using the LightonOCR model for clean markdown extraction
+ * @param file - The PDF file to process
+ * @param options - Additional processing options
+ * @returns Promise with clean markdown text extraction
+ */
+export async function processPdfWithLightonOcr(
+  file: File,
+  options?: {
+    dpi?: number;
+    annotate?: boolean;
+    outputFolder?: string | null;
+  }
+) {
+  return uploadPdfForOcr(file, { model: 'lightonocr', ...options });
+}
+
