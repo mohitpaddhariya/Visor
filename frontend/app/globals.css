@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+/* -------------------------------------------------
+   Visor OCR – Tailwind v4 Theme
+   ------------------------------------------------- */
+@theme {
+  /* ── Bounding Box Colors ─────────────────────── */
+  --color-bbox-default:            #91C9EF;                          /* Light Powder Blue */
+  --color-bbox-hover:              #0BB977;                          /* Vivid Green */
+  --color-bbox-selected:           #FF8DE7;                          /* Light Pink */
+  --color-bbox-error:              oklch(0.65 0.24 25);              /* Red */
+
+  /* ── Accent Colors ───────────────────────────── */
+  --color-accent-magenta:          #0BB977;                          /* Primary CTA → Vivid Green */
+  --color-accent-magenta-hover:    #7EEB62;                          /* Hover → Radium Green */
+}
+
+/* ── Light-mode ─────────────────────────── */
+.light {
+  --background:          oklch(1 0 0);                                /* Pure White */
+  --foreground:          oklch(0.145 0 0);                            /* Near Black */
+  --card:          oklch(1 0 0);                                      /* White */
+  --card-foreground:          oklch(0.145 0 0);                       /* Near Black */
+  --primary:          oklch(0.68 0.19 162);                           /* Vivid Green #0BB977 */
+  --primary-foreground:          oklch(1 0 0);                        /* White text on green */
+  --secondary:          oklch(0.97 0 0);                              /* Light Gray */
+  --secondary-foreground:          oklch(0.205 0 0);                  /* Dark Gray */
+  --muted:          oklch(0.97 0 0);                                  /* Light Gray */
+  --muted-foreground:          oklch(0.556 0 0);                      /* Medium Gray */
+  --accent:          oklch(0.97 0 0);                                 /* Light accent bg */
+  --accent-foreground:          oklch(0.205 0 0);                     /* Dark text */
+  --destructive:          oklch(0.577 0.245 27.325);                  /* Red */
+  --border:          oklch(0.922 0 0);                                /* Light Gray border */
+  --input:          oklch(0.922 0 0);                                 /* Input border */
+  --ring:          oklch(0.68 0.19 162);                              /* Green focus ring */
+}
+
+/* ── Dark-mode ─────────────────────────── */
+.dark {
+  --background:          oklch(0.145 0 0);                            /* Dark Background */
+  --foreground:          oklch(0.985 0 0);                            /* White text */
+  --card:          oklch(0.205 0 0);                                  /* Dark Card */
+  --card-foreground:          oklch(0.985 0 0);                       /* White text */
+  --primary:          oklch(0.68 0.19 162);                           /* Vivid Green #0BB977 */
+  --primary-foreground:          oklch(0.145 0 0);                    /* Dark text on green */
+  --secondary:          oklch(0.269 0 0);                             /* Dark Gray */
+  --secondary-foreground:          oklch(0.985 0 0);                  /* White text */
+  --muted:          oklch(0.269 0 0);                                 /* Muted dark */
+  --muted-foreground:          oklch(0.708 0 0);                      /* Muted text */
+  --accent:          oklch(0.269 0 0);                                /* Dark accent */
+  --accent-foreground:          oklch(0.985 0 0);                     /* White text */
+  --destructive:          oklch(0.704 0.191 22.216);                  /* Red */
+  --border:          oklch(1 0 0 / 10%);                              /* Subtle border */
+  --input:          oklch(1 0 0 / 15%);                               /* Input border */
+  --ring:          oklch(0.68 0.19 162);                              /* Green focus ring */
+}
+
+@theme inline {
+  --radius-sm:          calc(var(--radius) - 4px);
+  --radius-md:          calc(var(--radius) - 2px);
+  --radius-lg:          var(--radius);
+  --radius-xl:          calc(var(--radius) + 4px);
+  --color-background:          var(--background);
+  --color-foreground:          var(--foreground);
+  --color-card:          var(--card);
+  --color-card-foreground:          var(--card-foreground);
+  --color-primary:          var(--primary);
+  --color-primary-foreground:          var(--primary-foreground);
+  --color-secondary:          var(--secondary);
+  --color-secondary-foreground:          var(--secondary-foreground);
+  --color-muted:          var(--muted);
+  --color-muted-foreground:          var(--muted-foreground);
+  --color-accent:          var(--accent);
+  --color-accent-foreground:          var(--accent-foreground);
+  --color-destructive:          var(--destructive);
+  --color-border:          var(--border);
+  --color-input:          var(--input);
+  --color-ring:          var(--ring);
+}
+
+@layer base {
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: 'Inter', sans-serif;
+    transition: background-color 0.3s, color 0.3s;
+  }
+}
