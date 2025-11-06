@@ -20,6 +20,8 @@ export default function ResultsPanel() {
     uploadedFile,
     error,
     processingFile,
+    processingStatus,
+    processingProgress,
     handleRunOcr,
     handleCancelOcr,
     availableModels,
@@ -367,13 +369,30 @@ export default function ResultsPanel() {
         )}
         {isProcessing ? (
           <div className="flex-1 flex items-center justify-center p-6 sm:p-8">
-            <div className="text-center space-y-3">
-              <div className="inline-flex items-center justify-center w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-primary/10">
-                <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 text-primary animate-spin" />
+            <div className="text-center space-y-4">
+              <div className="inline-flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-primary/10">
+                <Loader2 className="w-6 h-6 sm:w-8 sm:h-8 text-primary animate-spin" />
               </div>
-              <div>
-                <p className="text-sm sm:text-base text-foreground font-medium">Analyzing Document</p>
-                <p className="text-xs sm:text-sm text-muted-foreground truncate max-w-xs">{processingFile}</p>
+              <div className="space-y-2">
+                <p className="text-sm sm:text-base text-foreground font-medium">
+                  {processingStatus === "starting" ? "Starting OCR..." : 
+                   processingStatus === "pending" ? "Job Queued" : 
+                   processingStatus === "running" ? "Processing Document" : 
+                   "Analyzing Document"}
+                </p>
+                <p className="text-xs sm:text-sm text-muted-foreground truncate max-w-xs">
+                  {processingFile}
+                </p>
+                {processingProgress && (
+                  <p className="text-xs text-muted-foreground/80 animate-pulse">
+                    {processingProgress}
+                  </p>
+                )}
+                {processingStatus && processingStatus !== "starting" && (
+                  <p className="text-xs text-primary/60 font-mono">
+                    Status: {processingStatus}
+                  </p>
+                )}
               </div>
             </div>
           </div>

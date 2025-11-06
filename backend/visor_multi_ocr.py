@@ -232,15 +232,21 @@ snapshot_download(repo_id='{LIGHTON_MODEL_NAME}', local_dir='{model_path}', toke
 
 
 # --------------------------------------------------------------
-# ---------- MULTI-MODEL BATCH OCR FUNCTION ----------
+# ---------- MULTI-MODEL BATCH OCR FUNCTION (Job Queue) ----------
 # --------------------------------------------------------------
 @app.function(
     secrets=[modal.Secret.from_name(HF_SECRET_NAME)],
     timeout=10 * 60,
 )
-def ocr_batch_pages(image_b64_list: List[str], model: str = "dotsocr") -> Dict[str, Dict]:
+def ocr_batch_pages(
+    image_b64_list: List[str], 
+    model: str = "dotsocr",
+    job_metadata: Dict = None
+) -> Dict[str, any]:
     """
     Multi-Model OCR API – processes a list of base64 PNG images using either DotsOCR or LightOnOCR.
+    
+    This function is designed to be spawned as a job and returns progress updates.
 
     Parameters
     ----------
@@ -249,13 +255,21 @@ def ocr_batch_pages(image_b64_list: List[str], model: str = "dotsocr") -> Dict[s
     model: str
         ``"dotsocr"``  → layout JSON list (DotsOCR)
         ``"lightonocr"`` → markdown string (LightOnOCR)
+    job_metadata: Dict
+        Optional metadata about the job (filename, dpi, etc.)
 
     Returns
     -------
-    Dict[str, Dict]
+    Dict[str, any]
         {
-            "page_0": {"status": "success", "data": <layout list or markdown>},
-            ...
+            "status": "completed",
+            "total_pages": int,
+            "model": str,
+            "results": {
+                "page_0": {"status": "success", "data": <layout list or markdown>},
+                ...
+            },
+            "metadata": {...}
         }
     """
     if model not in {"dotsocr", "lightonocr"}:
@@ -278,7 +292,8 @@ def ocr_batch_pages(image_b64_list: List[str], model: str = "dotsocr") -> Dict[s
     url = f"{server_url}/v1/chat/completions"
     results: Dict[str, Dict] = {}
 
-    print(f"Processing {len(image_b64_list)} pages in parallel using {model.upper()}...")
+    total_pages = len(image_b64_list)
+    print(f"[JOB] Processing {total_pages} pages in parallel using {model.upper()}...")
 
     def _call_page(idx: int, b64_img: str) -> Dict:
         # ---------- payload construction ----------
@@ -305,6 +320,7 @@ def ocr_batch_pages(image_b64_list: List[str], model: str = "dotsocr") -> Dict[s
         }
 
         try:
+            print(f"[JOB] Processing page {idx + 1}/{total_pages}")
             resp = requests.post(url, json=payload, timeout=300)
             resp.raise_for_status()
             raw = resp.json()["choices"][0]["message"]["content"]
@@ -316,9 +332,10 @@ def ocr_batch_pages(image_b64_list: List[str], model: str = "dotsocr") -> Dict[s
             else:
                 data = raw.strip()
 
+            print(f"[JOB] ✓ Page {idx + 1}/{total_pages} completed")
             return {"status": "success", "data": data}
         except Exception as e:
-            print(f"Error processing page {idx}: {e}")
+            print(f"[JOB] ✗ Error processing page {idx + 1}/{total_pages}: {e}")
             return {"status": "error", "error": str(e)}
 
     # ---------- parallel execution ----------
@@ -329,5 +346,12 @@ def ocr_batch_pages(image_b64_list: List[str], model: str = "dotsocr") -> Dict[s
             i = future_to_idx[fut]
             results[f"page_{i}"] = fut.result()
 
-    print(f"All {len(image_b64_list)} pages processed.")
-    return results
+    print(f"[JOB] All {total_pages} pages processed successfully.")
+    
+    return {
+        "status": "completed",
+        "total_pages": total_pages,
+        "model": model,
+        "results": results,
+        "metadata": job_metadata or {}
+    }

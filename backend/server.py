@@ -2,10 +2,12 @@ import io
 import base64
 import json
 import traceback
+import asyncio
 from datetime import datetime
 from typing import List, Optional, Any, Dict
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import fitz  # PyMuPDF
 from PIL import Image, ImageDraw, ImageFont
@@ -65,6 +67,26 @@ class OCRRequest(BaseModel):
     output_folder: Optional[str] = None
 
 
+class OCRJobSubmitResponse(BaseModel):
+    """Response when submitting a new OCR job"""
+    success: bool
+    job_id: str
+    filename: str
+    total_pages: int
+    model: str
+    dpi: int
+    message: str
+    submitted_at: datetime
+
+
+class OCRJobStatusResponse(BaseModel):
+    """Response for job status check"""
+    job_id: str
+    status: str  # "pending", "running", "completed", "failed", "expired"
+    progress: Optional[Dict[str, Any]] = None
+    message: str
+
+
 class OCRResponse(BaseModel):
     success: bool
     filename: str
@@ -97,7 +119,7 @@ app.add_middleware(
 # -------------------------------------------------
 # Modal Function Reference
 # -------------------------------------------------
-from modal import Function as ModalFunction
+from modal import Function as ModalFunction, FunctionCall
 
 OCR_FUNCTION_APP = "visor-multi-ocr"
 OCR_FUNCTION_NAME = "ocr_batch_pages"
@@ -107,7 +129,7 @@ try:
     print(f"Connected to Modal function: {OCR_FUNCTION_APP}.{OCR_FUNCTION_NAME}")
 except Exception as e:
     print(f"Could not connect to Modal function: {e}")
-    print("   Run: modal deploy vllm_server_multi.py")
+    print("   Run: modal deploy visor_multi_ocr.py")
     ocr_batch_pages_fn = None
 
 
@@ -210,6 +232,8 @@ async def ocr_pdf(
     output_folder: Optional[str] = None
 ) -> OCRResponse:
     """
+    [DEPRECATED - Use /ocr/submit for job-based processing]
+    
     Extract text/layout from PDF using configured OCR models.
 
     Available models:
@@ -234,7 +258,7 @@ async def ocr_pdf(
     if ocr_batch_pages_fn is None:
         raise HTTPException(
             503,
-            "OCR backend not available. Deploy with: modal deploy vllm_server_multi.py"
+            "OCR backend not available. Deploy with: modal deploy visor_multi_ocr.py"
         )
 
     try:
@@ -245,8 +269,14 @@ async def ocr_pdf(
         # Convert to base64
         b64_images = [image_to_base64(img) for img in images]
 
-        # Call multi-model OCR Modal function
-        raw_results = ocr_batch_pages_fn.remote(b64_images, model=model)
+        # Call multi-model OCR Modal function (blocking)
+        job_metadata = {
+            "filename": file.filename,
+            "dpi": dpi,
+            "total_pages": total_pages
+        }
+        result = ocr_batch_pages_fn.remote(b64_images, model=model, job_metadata=job_metadata)
+        raw_results = result.get("results", {})
 
         # Optional: Annotate images (only for models that support bounding boxes)
         model_config = MODAL_CONFIG.get("models", {}).get(model, {})
@@ -282,6 +312,290 @@ async def ocr_pdf(
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(500, f"OCR failed: {str(e)}")
+
+
+@app.post("/ocr/submit", response_model=OCRJobSubmitResponse)
+async def submit_ocr_job(
+    file: UploadFile = File(...),
+    dpi: int = Query(200, ge=72, le=600),
+    model: str = Query(None, description="OCR model to use"),
+) -> OCRJobSubmitResponse:
+    """
+    Submit a new OCR job to the queue and get a job ID.
+    
+    Use this endpoint to submit long-running OCR tasks. The job will be processed
+    asynchronously and you can check its status using /ocr/status/{job_id} or
+    stream updates via SSE at /ocr/stream/{job_id}.
+    
+    Available models:
+    - dotsocr: Structured layout JSON with bbox, categories, and formatted text
+    - lightonocr: Clean markdown text extraction
+    """
+    # Set default model from config if not specified
+    if model is None:
+        model = MODAL_CONFIG.get("default_model", "dotsocr")
+
+    # Validate model
+    supported_models = MODAL_CONFIG.get("supported_models", [])
+    if model not in supported_models:
+        raise HTTPException(
+            400,
+            f"Unsupported model '{model}'. Available models: {', '.join(supported_models)}"
+        )
+
+    if not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(400, "Only PDF files are supported")
+
+    if ocr_batch_pages_fn is None:
+        raise HTTPException(
+            503,
+            "OCR backend not available. Deploy with: modal deploy visor_multi_ocr.py"
+        )
+
+    try:
+        pdf_bytes = await file.read()
+        images = pdf_to_images(pdf_bytes, dpi=dpi)
+        total_pages = len(images)
+
+        # Convert to base64
+        b64_images = [image_to_base64(img) for img in images]
+
+        # Prepare job metadata
+        job_metadata = {
+            "filename": file.filename,
+            "dpi": dpi,
+            "total_pages": total_pages,
+            "submitted_at": datetime.now().isoformat()
+        }
+
+        # Spawn the job asynchronously
+        print(f"Spawning OCR job for {file.filename} ({total_pages} pages) with model {model}")
+        call = await ocr_batch_pages_fn.spawn.aio(b64_images, model=model, job_metadata=job_metadata)
+        job_id = call.object_id
+
+        print(f"Job submitted: {job_id}")
+
+        return OCRJobSubmitResponse(
+            success=True,
+            job_id=job_id,
+            filename=file.filename,
+            total_pages=total_pages,
+            model=model,
+            dpi=dpi,
+            message=f"Job submitted successfully. Use /ocr/status/{job_id} to check status or /ocr/stream/{job_id} for real-time updates.",
+            submitted_at=datetime.now()
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(500, f"Failed to submit OCR job: {str(e)}")
+
+
+@app.get("/ocr/status/{job_id}", response_model=OCRJobStatusResponse)
+async def get_job_status(job_id: str) -> OCRJobStatusResponse:
+    """
+    Check the status of an OCR job.
+    
+    Returns:
+    - status: "pending" (queued), "running" (processing), "completed", "failed", or "expired"
+    - progress: Current progress information if available
+    """
+    try:
+        function_call = FunctionCall.from_id(job_id)
+        
+        # Try to get result with 0 timeout (non-blocking poll)
+        try:
+            result = await function_call.get.aio(timeout=0)
+            
+            # Job completed successfully
+            return OCRJobStatusResponse(
+                job_id=job_id,
+                status="completed",
+                progress={
+                    "total_pages": result.get("total_pages", 0),
+                    "model": result.get("model", "unknown"),
+                    "metadata": result.get("metadata", {})
+                },
+                message="Job completed successfully"
+            )
+            
+        except TimeoutError:
+            # Job is still running or pending
+            return OCRJobStatusResponse(
+                job_id=job_id,
+                status="running",
+                progress=None,
+                message="Job is currently being processed"
+            )
+            
+    except Exception as e:
+        error_msg = str(e)
+        if "OutputExpiredError" in error_msg or "expired" in error_msg.lower():
+            return OCRJobStatusResponse(
+                job_id=job_id,
+                status="expired",
+                progress=None,
+                message="Job results have expired (>7 days old)"
+            )
+        else:
+            return OCRJobStatusResponse(
+                job_id=job_id,
+                status="failed",
+                progress=None,
+                message=f"Job failed: {error_msg}"
+            )
+
+
+@app.get("/ocr/result/{job_id}")
+async def get_job_result(
+    job_id: str,
+    annotate: bool = Query(False, description="Return annotated images with bounding boxes")
+):
+    """
+    Get the result of a completed OCR job.
+    
+    Returns the full OCR results including all pages. If the job is not yet complete,
+    returns a 202 status. If expired, returns 404.
+    """
+    try:
+        function_call = FunctionCall.from_id(job_id)
+        
+        try:
+            result = await function_call.get.aio(timeout=0)
+            
+            # Job completed - return full results
+            raw_results = result.get("results", {})
+            metadata = result.get("metadata", {})
+            
+            # Handle annotation if requested
+            annotated_b64 = []
+            if annotate:
+                model = result.get("model", "dotsocr")
+                model_config = MODAL_CONFIG.get("models", {}).get(model, {})
+                supports_bbox = model_config.get("supports_bounding_boxes", False)
+                
+                if supports_bbox and "images_b64" in metadata:
+                    # Would need to re-render images with boxes
+                    # For now, just indicate it's not available in stored results
+                    pass
+            
+            return {
+                "success": True,
+                "job_id": job_id,
+                "status": "completed",
+                "filename": metadata.get("filename", "unknown"),
+                "total_pages": result.get("total_pages", 0),
+                "dpi": metadata.get("dpi", 200),
+                "model": result.get("model", "unknown"),
+                "results": raw_results,
+                "annotated_images": annotated_b64,
+                "message": "Job completed successfully",
+                "completed_at": datetime.now()
+            }
+            
+        except TimeoutError:
+            # Job still running
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=202,
+                content={
+                    "success": False,
+                    "job_id": job_id,
+                    "status": "running",
+                    "message": "Job is still being processed. Please try again later."
+                }
+            )
+            
+    except Exception as e:
+        error_msg = str(e)
+        if "OutputExpiredError" in error_msg or "expired" in error_msg.lower():
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "success": False,
+                    "job_id": job_id,
+                    "status": "expired",
+                    "message": "Job results have expired (>7 days old)"
+                }
+            )
+        else:
+            raise HTTPException(500, f"Failed to retrieve job result: {error_msg}")
+
+
+@app.get("/ocr/stream/{job_id}")
+async def stream_job_progress(job_id: str):
+    """
+    Stream job progress updates via Server-Sent Events (SSE).
+    
+    This endpoint streams real-time updates about the job status. The client should
+    listen to this event stream to get progress updates without polling.
+    
+    Events sent:
+    - status: Current job status (pending, running, completed, failed)
+    - progress: Progress updates with page counts
+    - result: Final result when job completes
+    - error: Error information if job fails
+    """
+    async def event_generator():
+        try:
+            function_call = FunctionCall.from_id(job_id)
+            
+            # Send initial status
+            yield f"event: status\ndata: {json.dumps({'status': 'pending', 'job_id': job_id})}\n\n"
+            await asyncio.sleep(0.1)
+            
+            # Poll for completion
+            max_wait = 600  # 10 minutes max
+            poll_interval = 2  # Poll every 2 seconds
+            elapsed = 0
+            
+            while elapsed < max_wait:
+                try:
+                    result = await function_call.get.aio(timeout=0)
+                    
+                    # Job completed!
+                    yield f"event: status\ndata: {json.dumps({'status': 'completed', 'job_id': job_id})}\n\n"
+                    await asyncio.sleep(0.1)
+                    
+                    # Send final result
+                    result_data = {
+                        "job_id": job_id,
+                        "status": "completed",
+                        "total_pages": result.get("total_pages", 0),
+                        "model": result.get("model", "unknown"),
+                        "results": result.get("results", {}),
+                        "metadata": result.get("metadata", {})
+                    }
+                    yield f"event: result\ndata: {json.dumps(result_data)}\n\n"
+                    yield f"event: close\ndata: {json.dumps({'message': 'Stream complete'})}\n\n"
+                    break
+                    
+                except TimeoutError:
+                    # Still running
+                    yield f"event: status\ndata: {json.dumps({'status': 'running', 'job_id': job_id, 'elapsed': elapsed})}\n\n"
+                    await asyncio.sleep(poll_interval)
+                    elapsed += poll_interval
+                    
+            else:
+                # Timeout reached
+                yield f"event: timeout\ndata: {json.dumps({'status': 'timeout', 'job_id': job_id, 'message': 'Job still running after 10 minutes'})}\n\n"
+                
+        except Exception as e:
+            error_msg = str(e)
+            yield f"event: error\ndata: {json.dumps({'status': 'error', 'job_id': job_id, 'error': error_msg})}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable proxy buffering
+        }
+    )
 
 
 # -------------------------------------------------

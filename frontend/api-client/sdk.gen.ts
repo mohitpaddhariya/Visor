@@ -2,8 +2,8 @@
 
 import { type Client, formDataBodySerializer, type Options as Options2, type TDataShape } from './client';
 import { client } from './client.gen';
-import { ocrPdfOcrPostResponseTransformer } from './transformers.gen';
-import type { GetAvailableModelsOcrModelsGetData, GetAvailableModelsOcrModelsGetResponses, OcrPdfOcrPostData, OcrPdfOcrPostErrors, OcrPdfOcrPostResponses, RootGetData, RootGetResponses } from './types.gen';
+import { getJobStatusOcrStatusJobIdGetResponseTransformer, ocrPdfOcrPostResponseTransformer, submitOcrJobOcrSubmitPostResponseTransformer } from './transformers.gen';
+import type { GetAvailableModelsOcrModelsGetData, GetAvailableModelsOcrModelsGetResponses, GetJobResultOcrResultJobIdGetData, GetJobResultOcrResultJobIdGetErrors, GetJobResultOcrResultJobIdGetResponses, GetJobStatusOcrStatusJobIdGetData, GetJobStatusOcrStatusJobIdGetErrors, GetJobStatusOcrStatusJobIdGetResponses, OcrPdfOcrPostData, OcrPdfOcrPostErrors, OcrPdfOcrPostResponses, RootGetData, RootGetResponses, StreamJobProgressOcrStreamJobIdGetData, StreamJobProgressOcrStreamJobIdGetErrors, StreamJobProgressOcrStreamJobIdGetResponses, SubmitOcrJobOcrSubmitPostData, SubmitOcrJobOcrSubmitPostErrors, SubmitOcrJobOcrSubmitPostResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -46,6 +46,8 @@ export const getAvailableModelsOcrModelsGet = <ThrowOnError extends boolean = fa
 /**
  * Ocr Pdf
  *
+ * [DEPRECATED - Use /ocr/submit for job-based processing]
+ *
  * Extract text/layout from PDF using configured OCR models.
  *
  * Available models:
@@ -63,5 +65,88 @@ export const ocrPdfOcrPost = <ThrowOnError extends boolean = false>(options: Opt
             'Content-Type': null,
             ...options.headers
         }
+    });
+};
+
+/**
+ * Submit Ocr Job
+ *
+ * Submit a new OCR job to the queue and get a job ID.
+ *
+ * Use this endpoint to submit long-running OCR tasks. The job will be processed
+ * asynchronously and you can check its status using /ocr/status/{job_id} or
+ * stream updates via SSE at /ocr/stream/{job_id}.
+ *
+ * Available models:
+ * - dotsocr: Structured layout JSON with bbox, categories, and formatted text
+ * - lightonocr: Clean markdown text extraction
+ */
+export const submitOcrJobOcrSubmitPost = <ThrowOnError extends boolean = false>(options: Options<SubmitOcrJobOcrSubmitPostData, ThrowOnError>) => {
+    return (options.client ?? client).post<SubmitOcrJobOcrSubmitPostResponses, SubmitOcrJobOcrSubmitPostErrors, ThrowOnError>({
+        ...formDataBodySerializer,
+        responseTransformer: submitOcrJobOcrSubmitPostResponseTransformer,
+        responseType: 'json',
+        url: '/ocr/submit',
+        ...options,
+        headers: {
+            'Content-Type': null,
+            ...options.headers
+        }
+    });
+};
+
+/**
+ * Get Job Status
+ *
+ * Check the status of an OCR job.
+ *
+ * Returns:
+ * - status: "pending" (queued), "running" (processing), "completed", "failed", or "expired"
+ * - progress: Current progress information if available
+ */
+export const getJobStatusOcrStatusJobIdGet = <ThrowOnError extends boolean = false>(options: Options<GetJobStatusOcrStatusJobIdGetData, ThrowOnError>) => {
+    return (options.client ?? client).get<GetJobStatusOcrStatusJobIdGetResponses, GetJobStatusOcrStatusJobIdGetErrors, ThrowOnError>({
+        responseTransformer: getJobStatusOcrStatusJobIdGetResponseTransformer,
+        responseType: 'json',
+        url: '/ocr/status/{job_id}',
+        ...options
+    });
+};
+
+/**
+ * Get Job Result
+ *
+ * Get the result of a completed OCR job.
+ *
+ * Returns the full OCR results including all pages. If the job is not yet complete,
+ * returns a 202 status. If expired, returns 404.
+ */
+export const getJobResultOcrResultJobIdGet = <ThrowOnError extends boolean = false>(options: Options<GetJobResultOcrResultJobIdGetData, ThrowOnError>) => {
+    return (options.client ?? client).get<GetJobResultOcrResultJobIdGetResponses, GetJobResultOcrResultJobIdGetErrors, ThrowOnError>({
+        responseType: 'json',
+        url: '/ocr/result/{job_id}',
+        ...options
+    });
+};
+
+/**
+ * Stream Job Progress
+ *
+ * Stream job progress updates via Server-Sent Events (SSE).
+ *
+ * This endpoint streams real-time updates about the job status. The client should
+ * listen to this event stream to get progress updates without polling.
+ *
+ * Events sent:
+ * - status: Current job status (pending, running, completed, failed)
+ * - progress: Progress updates with page counts
+ * - result: Final result when job completes
+ * - error: Error information if job fails
+ */
+export const streamJobProgressOcrStreamJobIdGet = <ThrowOnError extends boolean = false>(options: Options<StreamJobProgressOcrStreamJobIdGetData, ThrowOnError>) => {
+    return (options.client ?? client).get<StreamJobProgressOcrStreamJobIdGetResponses, StreamJobProgressOcrStreamJobIdGetErrors, ThrowOnError>({
+        responseType: 'json',
+        url: '/ocr/stream/{job_id}',
+        ...options
     });
 };

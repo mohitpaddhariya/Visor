@@ -15,6 +15,16 @@ export type BodyOcrPdfOcrPost = {
 };
 
 /**
+ * Body_submit_ocr_job_ocr_submit_post
+ */
+export type BodySubmitOcrJobOcrSubmitPost = {
+    /**
+     * File
+     */
+    file: Blob | File;
+};
+
+/**
  * HTTPValidationError
  */
 export type HttpValidationError = {
@@ -22,6 +32,72 @@ export type HttpValidationError = {
      * Detail
      */
     detail?: Array<ValidationError>;
+};
+
+/**
+ * OCRJobStatusResponse
+ *
+ * Response for job status check
+ */
+export type OcrJobStatusResponse = {
+    /**
+     * Job Id
+     */
+    job_id: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Progress
+     */
+    progress?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Message
+     */
+    message: string;
+};
+
+/**
+ * OCRJobSubmitResponse
+ *
+ * Response when submitting a new OCR job
+ */
+export type OcrJobSubmitResponse = {
+    /**
+     * Success
+     */
+    success: boolean;
+    /**
+     * Job Id
+     */
+    job_id: string;
+    /**
+     * Filename
+     */
+    filename: string;
+    /**
+     * Total Pages
+     */
+    total_pages: number;
+    /**
+     * Model
+     */
+    model: string;
+    /**
+     * Dpi
+     */
+    dpi: number;
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Submitted At
+     */
+    submitted_at: Date;
 };
 
 /**
@@ -159,3 +235,132 @@ export type OcrPdfOcrPostResponses = {
 };
 
 export type OcrPdfOcrPostResponse = OcrPdfOcrPostResponses[keyof OcrPdfOcrPostResponses];
+
+export type SubmitOcrJobOcrSubmitPostData = {
+    body: BodySubmitOcrJobOcrSubmitPost;
+    path?: never;
+    query?: {
+        /**
+         * Dpi
+         */
+        dpi?: number;
+        /**
+         * Model
+         *
+         * OCR model to use
+         */
+        model?: string;
+    };
+    url: '/ocr/submit';
+};
+
+export type SubmitOcrJobOcrSubmitPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SubmitOcrJobOcrSubmitPostError = SubmitOcrJobOcrSubmitPostErrors[keyof SubmitOcrJobOcrSubmitPostErrors];
+
+export type SubmitOcrJobOcrSubmitPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: OcrJobSubmitResponse;
+};
+
+export type SubmitOcrJobOcrSubmitPostResponse = SubmitOcrJobOcrSubmitPostResponses[keyof SubmitOcrJobOcrSubmitPostResponses];
+
+export type GetJobStatusOcrStatusJobIdGetData = {
+    body?: never;
+    path: {
+        /**
+         * Job Id
+         */
+        job_id: string;
+    };
+    query?: never;
+    url: '/ocr/status/{job_id}';
+};
+
+export type GetJobStatusOcrStatusJobIdGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetJobStatusOcrStatusJobIdGetError = GetJobStatusOcrStatusJobIdGetErrors[keyof GetJobStatusOcrStatusJobIdGetErrors];
+
+export type GetJobStatusOcrStatusJobIdGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: OcrJobStatusResponse;
+};
+
+export type GetJobStatusOcrStatusJobIdGetResponse = GetJobStatusOcrStatusJobIdGetResponses[keyof GetJobStatusOcrStatusJobIdGetResponses];
+
+export type GetJobResultOcrResultJobIdGetData = {
+    body?: never;
+    path: {
+        /**
+         * Job Id
+         */
+        job_id: string;
+    };
+    query?: {
+        /**
+         * Annotate
+         *
+         * Return annotated images with bounding boxes
+         */
+        annotate?: boolean;
+    };
+    url: '/ocr/result/{job_id}';
+};
+
+export type GetJobResultOcrResultJobIdGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetJobResultOcrResultJobIdGetError = GetJobResultOcrResultJobIdGetErrors[keyof GetJobResultOcrResultJobIdGetErrors];
+
+export type GetJobResultOcrResultJobIdGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type StreamJobProgressOcrStreamJobIdGetData = {
+    body?: never;
+    path: {
+        /**
+         * Job Id
+         */
+        job_id: string;
+    };
+    query?: never;
+    url: '/ocr/stream/{job_id}';
+};
+
+export type StreamJobProgressOcrStreamJobIdGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type StreamJobProgressOcrStreamJobIdGetError = StreamJobProgressOcrStreamJobIdGetErrors[keyof StreamJobProgressOcrStreamJobIdGetErrors];
+
+export type StreamJobProgressOcrStreamJobIdGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};

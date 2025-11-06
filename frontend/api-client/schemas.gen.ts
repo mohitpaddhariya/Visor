@@ -13,6 +13,19 @@ export const Body_ocr_pdf_ocr_postSchema = {
     title: 'Body_ocr_pdf_ocr_post'
 } as const;
 
+export const Body_submit_ocr_job_ocr_submit_postSchema = {
+    properties: {
+        file: {
+            type: 'string',
+            format: 'binary',
+            title: 'File'
+        }
+    },
+    type: 'object',
+    required: ['file'],
+    title: 'Body_submit_ocr_job_ocr_submit_post'
+} as const;
+
 export const HTTPValidationErrorSchema = {
     properties: {
         detail: {
@@ -25,6 +38,81 @@ export const HTTPValidationErrorSchema = {
     },
     type: 'object',
     title: 'HTTPValidationError'
+} as const;
+
+export const OCRJobStatusResponseSchema = {
+    properties: {
+        job_id: {
+            type: 'string',
+            title: 'Job Id'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        progress: {
+            anyOf: [
+                {
+                    additionalProperties: true,
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Progress'
+        },
+        message: {
+            type: 'string',
+            title: 'Message'
+        }
+    },
+    type: 'object',
+    required: ['job_id', 'status', 'message'],
+    title: 'OCRJobStatusResponse',
+    description: 'Response for job status check'
+} as const;
+
+export const OCRJobSubmitResponseSchema = {
+    properties: {
+        success: {
+            type: 'boolean',
+            title: 'Success'
+        },
+        job_id: {
+            type: 'string',
+            title: 'Job Id'
+        },
+        filename: {
+            type: 'string',
+            title: 'Filename'
+        },
+        total_pages: {
+            type: 'integer',
+            title: 'Total Pages'
+        },
+        model: {
+            type: 'string',
+            title: 'Model'
+        },
+        dpi: {
+            type: 'integer',
+            title: 'Dpi'
+        },
+        message: {
+            type: 'string',
+            title: 'Message'
+        },
+        submitted_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Submitted At'
+        }
+    },
+    type: 'object',
+    required: ['success', 'job_id', 'filename', 'total_pages', 'model', 'dpi', 'message', 'submitted_at'],
+    title: 'OCRJobSubmitResponse',
+    description: 'Response when submitting a new OCR job'
 } as const;
 
 export const OCRResponseSchema = {

@@ -2,7 +2,12 @@
 
 import React, { createContext, useContext, useReducer, useRef, ReactNode, useEffect } from "react"
 import { ParsedData } from "@/lib/constants"
-import { uploadPdfForOcr, parseApiError, getAvailableModels } from "@/lib/api"
+import { 
+  uploadPdfForOcr, 
+  parseApiError, 
+  getAvailableModels,
+  processPdfWithStreaming
+} from "@/lib/api"
 
 // Model info interface
 interface ModelInfo {
@@ -25,6 +30,9 @@ interface AppState {
   isLoadingModels: boolean
   dpi: number
   enableAnnotations: boolean
+  jobId: string | null  // Track current job ID
+  processingStatus: string  // Track job status (pending, running, completed, etc.)
+  processingProgress: string  // User-friendly progress message
 }
 
 // Action types
@@ -40,6 +48,9 @@ type AppAction =
   | { type: "SET_LOADING_MODELS"; payload: boolean }
   | { type: "SET_DPI"; payload: number }
   | { type: "SET_ENABLE_ANNOTATIONS"; payload: boolean }
+  | { type: "SET_JOB_ID"; payload: string | null }
+  | { type: "SET_PROCESSING_STATUS"; payload: string }
+  | { type: "SET_PROCESSING_PROGRESS"; payload: string }
   | { type: "START_OCR"; payload: string }
   | { type: "OCR_SUCCESS"; payload: ParsedData }
   | { type: "OCR_ERROR"; payload: string }
@@ -59,6 +70,9 @@ const initialState: AppState = {
   isLoadingModels: false,
   dpi: 200, // Default DPI
   enableAnnotations: false,
+  jobId: null,
+  processingStatus: "",
+  processingProgress: "",
 }
 
 // Reducer function
@@ -86,12 +100,20 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, dpi: action.payload }
     case "SET_ENABLE_ANNOTATIONS":
       return { ...state, enableAnnotations: action.payload }
+    case "SET_JOB_ID":
+      return { ...state, jobId: action.payload }
+    case "SET_PROCESSING_STATUS":
+      return { ...state, processingStatus: action.payload }
+    case "SET_PROCESSING_PROGRESS":
+      return { ...state, processingProgress: action.payload }
     case "START_OCR":
       return {
         ...state,
         isProcessing: true,
         error: null,
         processingFile: action.payload,
+        processingStatus: "starting",
+        processingProgress: "Submitting job...",
       }
     case "OCR_SUCCESS":
       return {
@@ -99,18 +121,24 @@ function appReducer(state: AppState, action: AppAction): AppState {
         isProcessing: false,
         parsedData: action.payload,
         error: null,
+        processingStatus: "completed",
+        processingProgress: "Processing complete!",
       }
     case "OCR_ERROR":
       return {
         ...state,
         isProcessing: false,
         error: action.payload,
+        processingStatus: "error",
+        processingProgress: "",
       }
     case "OCR_CANCELLED":
       return {
         ...state,
         isProcessing: false,
         error: "Processing cancelled by user",
+        processingStatus: "cancelled",
+        processingProgress: "",
       }
     case "RESET":
       return {
@@ -229,11 +257,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
     abortControllerRef.current = controller
 
     try {
-      const result = await uploadPdfForOcr(state.uploadedFile, {
-        dpi: state.dpi,
-        model: state.selectedModel,
-        annotate: state.enableAnnotations,
-      })
+      // Use the new job queue API with SSE streaming
+      const result = await processPdfWithStreaming(
+        state.uploadedFile,
+        {
+          dpi: state.dpi,
+          model: state.selectedModel,
+        },
+        {
+          onStatus: (status, elapsed) => {
+            dispatch({ type: "SET_PROCESSING_STATUS", payload: status })
+            
+            let progressMessage = ""
+            switch (status) {
+              case "pending":
+                progressMessage = "Job queued, waiting to start..."
+                break
+              case "running":
+                progressMessage = `Processing... ${elapsed ? `(${elapsed}s)` : ""}`
+                break
+              case "completed":
+                progressMessage = "Processing complete!"
+                break
+              default:
+                progressMessage = `Status: ${status}`
+            }
+            
+            dispatch({ type: "SET_PROCESSING_PROGRESS", payload: progressMessage })
+          },
+          onProgress: (message) => {
+            dispatch({ type: "SET_PROCESSING_PROGRESS", payload: message })
+          },
+        }
+      )
 
       if (result.success && result.data) {
         dispatch({ type: "OCR_SUCCESS", payload: result.data })
